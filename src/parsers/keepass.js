@@ -113,7 +113,7 @@ const walkGroup = (group, parentPath = '') => {
  * @param {string} password - Master password for decryption.
  * @returns {Promise<Array<object>>}
  */
-export const parseKeePassKdbx = async (arrayBuffer, password) => {
+export const decryptKeepassKdbx = async (arrayBuffer, password) => {
   let db
   try {
     const credentials = new kdbxweb.Credentials(

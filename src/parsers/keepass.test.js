@@ -5,7 +5,7 @@ import {
   parseKeePassCsv,
   parseKeePassXml,
   parseKeePassData,
-  parseKeePassKdbx
+  decryptKeepassKdbx
 } from './keepass'
 import { addHttps } from '../utils/addHttps'
 
@@ -447,7 +447,7 @@ describe('parseKeePassXml', () => {
   })
 })
 
-describe('parseKeePassKdbx', () => {
+describe('decryptKeepassKdbx', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
@@ -471,7 +471,7 @@ describe('parseKeePassKdbx', () => {
       ]
     })
 
-    const result = await parseKeePassKdbx(new ArrayBuffer(10), 'password')
+    const result = await decryptKeepassKdbx(new ArrayBuffer(10), 'password')
     expect(result).toEqual([
       {
         type: 'login',
@@ -521,7 +521,7 @@ describe('parseKeePassKdbx', () => {
       ]
     })
 
-    const result = await parseKeePassKdbx(new ArrayBuffer(10), 'password')
+    const result = await decryptKeepassKdbx(new ArrayBuffer(10), 'password')
     expect(result.length).toBe(2)
     expect(result[0].folder).toBe('Root/Internet')
     expect(result[0].data.title).toBe('Web Entry')
@@ -550,7 +550,7 @@ describe('parseKeePassKdbx', () => {
       ]
     })
 
-    const result = await parseKeePassKdbx(new ArrayBuffer(10), 'password')
+    const result = await decryptKeepassKdbx(new ArrayBuffer(10), 'password')
     expect(result[0].data.customFields).toEqual([
       { type: 'note', note: 'TOTP: JBSWY3DPEHPK3PXP' },
       { type: 'note', note: 'TOTP: otpauth://totp/test' }
@@ -578,7 +578,7 @@ describe('parseKeePassKdbx', () => {
       ]
     })
 
-    const result = await parseKeePassKdbx(new ArrayBuffer(10), 'password')
+    const result = await decryptKeepassKdbx(new ArrayBuffer(10), 'password')
     expect(result[0].data.customFields).toEqual([
       { type: 'note', note: 'Recovery Email: backup@test.com' },
       { type: 'note', note: 'Security Question: Pet name' }
@@ -605,7 +605,7 @@ describe('parseKeePassKdbx', () => {
       ]
     })
 
-    const result = await parseKeePassKdbx(new ArrayBuffer(10), 'password')
+    const result = await decryptKeepassKdbx(new ArrayBuffer(10), 'password')
     expect(result[0].data.password).toBe('secret123')
   })
 
@@ -615,16 +615,16 @@ describe('parseKeePassKdbx', () => {
     kdbxweb.Kdbx.load.mockRejectedValue(error)
 
     await expect(
-      parseKeePassKdbx(new ArrayBuffer(10), 'wrong')
+      decryptKeepassKdbx(new ArrayBuffer(10), 'wrong')
     ).rejects.toThrow('Incorrect password')
   })
 
   it('throws with original error message on other errors', async () => {
     kdbxweb.Kdbx.load.mockRejectedValue(new Error('Random error'))
 
-    await expect(parseKeePassKdbx(new ArrayBuffer(10), 'pass')).rejects.toThrow(
-      'Failed to open database: Random error'
-    )
+    await expect(
+      decryptKeepassKdbx(new ArrayBuffer(10), 'pass')
+    ).rejects.toThrow('Failed to open database: Random error')
   })
 })
 
@@ -661,7 +661,7 @@ describe('parseKeePassData', () => {
     expect(result[0].data.title).toBe('XML Entry')
   })
 
-  it('routes KDBX to parseKeePassKdbx', async () => {
+  it('routes KDBX to decryptKeepassKdbx', async () => {
     kdbxweb.Kdbx.load.mockResolvedValue({
       groups: [
         {
