@@ -111,9 +111,9 @@ const walkGroup = (group, parentPath = '') => {
  * Parses a KDBX (KeePass 2.x) encrypted database file.
  * @param {ArrayBuffer} arrayBuffer - Raw KDBX file contents.
  * @param {string} password - Master password for decryption.
- * @returns {Promise<Array<object>>}
+ * @returns {Promise<object>}
  */
-export const decryptKeepassKdbx = async (arrayBuffer, password) => {
+export const decryptKeePassKdbx = async (arrayBuffer, password) => {
   let db
   try {
     const credentials = new kdbxweb.Credentials(
