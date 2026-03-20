@@ -18,7 +18,7 @@ This library provides functions to parse exported data from the following passwo
 Install the package using npm:
 
 ```bash
-npm install pearpass-lib-data-import
+npm install git+https://github.com/tetherto/pearpass-lib-data-import.git
 ```
 
 ## Testing
@@ -34,7 +34,7 @@ npm test
 Here is an example of how to use the library to parse data from a 1Password export file:
 
 ```javascript
-import { parse1PasswordData } from 'pearpass-lib-data-import';
+import { parse1PasswordData } from '@tetherto/pearpass-lib-data-import';
 import fs from 'fs';
 
 const filePath = 'path/to/your/1password_export.csv';
@@ -52,15 +52,9 @@ try {
 
 This project has no production dependencies. Development dependencies are listed in `package.json`.
 
-## Depended Submodules
-
-The following sibling submodules must be present in the workspace (they are not declared as npm dependencies):
-
-- [`tether-dev-docs`](../tether-dev-docs)
-
 ## Related Projects
 
-*   [pearpass-lib-data-export](https://github.com/tetherto/pearpass-lib-data-export)
+*   [@tetherto/pearpass-lib-data-export](https://github.com/tetherto/pearpass-lib-data-export)
 
 ## License
 
