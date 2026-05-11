@@ -41,8 +41,19 @@ if (!globalThis.crypto.subtle) {
 
   const algName = (alg) => (typeof alg === 'string' ? alg : alg?.name || '')
 
-  const toBuffer = (uint8) =>
-    uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength)
+  // Zero-copy fast path: noble hash/cipher functions always return standalone
+  // Uint8Arrays (byteOffset === 0, own full buffer). Returning .buffer directly
+  // is O(1) vs .slice() which copies every byte. Both conditions are required —
+  // byteOffset === 0 alone is insufficient: if byteLength < buffer.byteLength,
+  // returning .buffer would expose trailing bytes from a pooled or sliced buffer.
+  const toBuffer = (uint8) => {
+    if (uint8.byteOffset === 0 && uint8.byteLength === uint8.buffer.byteLength)
+      return uint8.buffer
+    return uint8.buffer.slice(
+      uint8.byteOffset,
+      uint8.byteOffset + uint8.byteLength
+    )
+  }
 
   class PolyfillCryptoKey {
     constructor(raw, algorithm) {

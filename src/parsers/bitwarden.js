@@ -12,14 +12,30 @@ import { getRowsFromCsv } from '../utils/getRowsFromCsv'
 // Bitwarden encrypted-export decryption helpers
 // ---------------------------------------------------------------------------
 
+// Hoist Buffer check once at module load — on Hermes, typeof on a global resolves
+// through the scope chain; checking it on every fromBase64 call (3× per cipher
+// field × hundreds of items) is pure avoidable overhead.
+const hasBuffer = typeof Buffer !== 'undefined'
+
+// Cache encoder/decoder singletons. TextEncoder/TextDecoder instantiation crosses
+// the JSI boundary on Hermes. A single large vault import calls these hundreds of
+// times; reusing one instance per module eliminates that repeated GC + bridge overhead.
+const sharedEncoder = new TextEncoder()
+const sharedDecoder = new TextDecoder()
+
+// Pre-encode constant HKDF info labels once at module load to avoid re-allocating
+// the same Uint8Arrays on every decryption call.
+const hkdfEncLabel = sharedEncoder.encode('enc')
+const hkdfMacLabel = sharedEncoder.encode('mac')
+
 const fromBase64 = (b64) => {
-  if (typeof Buffer !== 'undefined') {
+  if (hasBuffer) {
     return new Uint8Array(Buffer.from(b64, 'base64'))
   }
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
 }
 
-const toUtf8 = (str) => new TextEncoder().encode(str)
+const toUtf8 = (str) => sharedEncoder.encode(str)
 
 const timingSafeEqual = (a, b) => {
   if (a.length !== b.length) return false
@@ -37,12 +53,18 @@ const parseCipherString = (cipherString) => {
   const dot = cipherString.indexOf('.')
   const type = parseInt(cipherString.slice(0, dot), 10)
   if (type !== 2) throw new Error(`Unsupported CipherString type: ${type}`)
-  const parts = cipherString.slice(dot + 1).split('|')
-  if (parts.length !== 3) throw new Error('Invalid CipherString format')
+  // Avoid creating an intermediate string (slice before split) and a 3-element
+  // string array (split result). Direct indexOf + slice works on the original
+  // string with zero intermediate allocations — important for large cipher strings.
+  const dotPlus = dot + 1
+  const pipe1 = cipherString.indexOf('|', dotPlus)
+  const pipe2 = cipherString.indexOf('|', pipe1 + 1)
+  if (pipe1 === -1 || pipe2 === -1)
+    throw new Error('Invalid CipherString format')
   return {
-    iv: fromBase64(parts[0]),
-    ct: fromBase64(parts[1]),
-    mac: fromBase64(parts[2])
+    iv: fromBase64(cipherString.slice(dotPlus, pipe1)),
+    ct: fromBase64(cipherString.slice(pipe1 + 1, pipe2)),
+    mac: fromBase64(cipherString.slice(pipe2 + 1))
   }
 }
 
@@ -56,13 +78,26 @@ const parseCipherString = (cipherString) => {
 const aesCbcDecrypt = (cipherString, encKey, macKey) => {
   const { iv, ct, mac } = parseCipherString(cipherString)
 
-  const expectedMac = hmac(sha256, macKey, new Uint8Array([...iv, ...ct]))
+  // Replace spread operator ([...iv, ...ct]) which copies every byte via a JS
+  // loop into a temporary Array before the Uint8Array is built — O(2n) work.
+  // Using .set() maps to native memcpy via JSI typed-array internals, saving
+  // the full ciphertext worth of GC allocation on every HMAC verification.
+  const ivAndCt = new Uint8Array(iv.length + ct.length)
+  ivAndCt.set(iv, 0)
+  ivAndCt.set(ct, iv.length)
+  const expectedMac = hmac(sha256, macKey, ivAndCt)
   if (!timingSafeEqual(expectedMac, mac)) {
     throw new Error('Incorrect password')
   }
 
   const plainBytes = cbc(encKey, iv).decrypt(ct)
-  return new TextDecoder().decode(plainBytes)
+  // Decode first, then zero the byte buffer. This reduces peak memory on low-
+  // memory devices: plainBytes + the decoded string + the upcoming JSON.parse
+  // result would otherwise all live simultaneously. Zeroing also clears the
+  // sensitive decrypted content from memory as soon as it is no longer needed.
+  const text = sharedDecoder.decode(plainBytes)
+  plainBytes.fill(0)
+  return text
 }
 
 /**
@@ -81,7 +116,9 @@ export const decryptBitwardenJson = async (encryptedText, password) => {
     throw new Error('File is not password-protected')
   }
 
-  // Bitwarden encodes the base64 salt string as UTF-8 bytes — it does NOT decode it
+  // Bitwarden encodes the base64 salt string as UTF-8 bytes — it does NOT decode it.
+  // Intentionally short-lived locals: keeping salt and passwordBytes in a narrow
+  // scope lets the GC reclaim these byte arrays as soon as the KDF finishes.
   const salt = toUtf8(json.salt)
   const passwordBytes = toUtf8(password)
   const kdfType = json.kdfType ?? 0
@@ -114,8 +151,10 @@ export const decryptBitwardenJson = async (encryptedText, password) => {
     throw new Error(`Unsupported KDF type: ${kdfType}`)
   }
 
-  const encKey = expand(sha256, masterKey, toUtf8('enc'), 32)
-  const macKey = expand(sha256, masterKey, toUtf8('mac'), 32)
+  // Use pre-encoded label constants — these strings never change so there is no
+  // reason to re-encode and re-allocate them on every decryption call.
+  const encKey = expand(sha256, masterKey, hkdfEncLabel, 32)
+  const macKey = expand(sha256, masterKey, hkdfMacLabel, 32)
 
   const decryptedText = aesCbcDecrypt(json.data, encKey, macKey)
   return JSON.parse(decryptedText)
