@@ -139,6 +139,11 @@ export const decryptBitwardenJson = async (encryptedText, password) => {
     )
     masterKey = new Uint8Array(derivedBits)
   } else if (kdfType === 1) {
+    // Yield to the macrotask queue before running Argon2id. Unlike microtask
+    // yields (await Promise.resolve), a setTimeout(0) lets the React Native
+    // bridge flush pending UI frame commits, so the UI remains responsive and
+    // does not visibly freeze during the blocking KDF computation.
+    await new Promise((resolve) => setTimeout(resolve, 0))
     // Argon2id: Bitwarden pre-hashes the salt with SHA-256
     const saltHashed = sha256(salt)
     masterKey = argon2id(passwordBytes, saltHashed, {
