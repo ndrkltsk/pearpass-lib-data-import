@@ -1,7 +1,7 @@
-import '../utils/setupCrypto.js'
+import { argon2d, argon2id } from '@noble/hashes/argon2'
 import { DOMParser as XmlDomParser } from '@xmldom/xmldom'
-import { argon2id, argon2d } from 'hash-wasm'
 import * as _kdbxweb from 'kdbxweb'
+import '../utils/setupCrypto.js'
 
 const kdbxweb = _kdbxweb.default || _kdbxweb
 
@@ -12,15 +12,14 @@ kdbxweb.CryptoEngine.setArgon2Impl(
   (password, salt, memory, iterations, length, parallelism, type) => {
     const hashFn =
       type === kdbxweb.CryptoEngine.Argon2TypeArgon2id ? argon2id : argon2d
-    return hashFn({
-      password: new Uint8Array(password),
-      salt: new Uint8Array(salt),
-      memorySize: memory,
-      iterations,
-      hashLength: length,
-      parallelism,
-      outputType: 'binary'
-    })
+    return Promise.resolve(
+      hashFn(new Uint8Array(password), new Uint8Array(salt), {
+        t: iterations,
+        m: memory,
+        p: parallelism,
+        dkLen: length
+      })
+    )
   }
 )
 

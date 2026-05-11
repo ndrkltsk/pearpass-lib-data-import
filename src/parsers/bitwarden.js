@@ -1,10 +1,9 @@
-import '../utils/setupCrypto.js'
 import { cbc } from '@noble/ciphers/aes'
+import { argon2id } from '@noble/hashes/argon2'
 import { expand } from '@noble/hashes/hkdf'
 import { hmac } from '@noble/hashes/hmac'
-import { pbkdf2 } from '@noble/hashes/pbkdf2'
 import { sha256 } from '@noble/hashes/sha256'
-import { argon2id } from 'hash-wasm'
+import '../utils/setupCrypto.js'
 
 import { addHttps } from '../utils/addHttps'
 import { getRowsFromCsv } from '../utils/getRowsFromCsv'
@@ -89,21 +88,27 @@ export const decryptBitwardenJson = async (encryptedText, password) => {
 
   let masterKey
   if (kdfType === 0) {
-    masterKey = pbkdf2(sha256, passwordBytes, salt, {
-      c: json.kdfIterations,
-      dkLen: 32
-    })
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      passwordBytes,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    )
+    const derivedBits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt, iterations: json.kdfIterations, hash: 'SHA-256' },
+      keyMaterial,
+      256
+    )
+    masterKey = new Uint8Array(derivedBits)
   } else if (kdfType === 1) {
     // Argon2id: Bitwarden pre-hashes the salt with SHA-256
     const saltHashed = sha256(salt)
-    masterKey = await argon2id({
-      password: passwordBytes,
-      salt: saltHashed,
-      parallelism: json.kdfParallelism ?? 4,
-      iterations: json.kdfIterations,
-      memorySize: (json.kdfMemory ?? 64) * 1024,
-      hashLength: 32,
-      outputType: 'binary'
+    masterKey = argon2id(passwordBytes, saltHashed, {
+      t: json.kdfIterations,
+      m: (json.kdfMemory ?? 64) * 1024,
+      p: json.kdfParallelism ?? 4,
+      dkLen: 32
     })
   } else {
     throw new Error(`Unsupported KDF type: ${kdfType}`)

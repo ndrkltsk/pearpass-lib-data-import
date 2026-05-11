@@ -27,6 +27,7 @@ if (!globalThis.crypto.subtle) {
   const { sha256 } = require('@noble/hashes/sha256')
   const { sha512 } = require('@noble/hashes/sha512')
   const { hmac } = require('@noble/hashes/hmac')
+  const { pbkdf2 } = require('@noble/hashes/pbkdf2')
   const { cbc } = require('@noble/ciphers/aes')
 
   const toUint8 = (data) => {
@@ -91,6 +92,21 @@ if (!globalThis.crypto.subtle) {
       return toBuffer(
         cbc(key.rawKey, toUint8(algorithm.iv)).decrypt(toUint8(data))
       )
+    },
+
+    async deriveBits(algorithm, key, length) {
+      if (algName(algorithm) !== 'PBKDF2') {
+        throw new Error('Only PBKDF2 is supported for deriveBits')
+      }
+      const hashAlg = algName(algorithm.hash)
+      const hashFn =
+        hashAlg === 'SHA-256' ? sha256 : hashAlg === 'SHA-512' ? sha512 : null
+      if (!hashFn) throw new Error(`Unsupported PBKDF2 hash: ${hashAlg}`)
+      const result = pbkdf2(hashFn, key.rawKey, toUint8(algorithm.salt), {
+        c: algorithm.iterations,
+        dkLen: length / 8
+      })
+      return toBuffer(result)
     }
   }
 }
