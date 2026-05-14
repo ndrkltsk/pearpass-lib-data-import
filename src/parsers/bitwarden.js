@@ -101,15 +101,14 @@ const aesCbcDecrypt = (cipherString, encKey, macKey) => {
 }
 
 /**
- * Decrypts a Bitwarden password-protected encrypted JSON export.
- * Supports both PBKDF2 SHA-256 (kdfType 0) and Argon2id (kdfType 1).
+ * Pure-JS implementation. Slow. Like REALLY slow. intended
+ * for Node and web consumers and as a fallback.
  *
- * @param {string} encryptedText - Raw contents of the encrypted .json file
- * @param {string} password - The password used to protect the export
- * @returns {Promise<object>} Decrypted vault JSON (pass to parseBitwardenJson)
- * @throws {Error} If the file is not password-protected or the password is wrong
+ * @param {string} encryptedText
+ * @param {string} password
+ * @returns {Promise<object>}
  */
-export const decryptBitwardenJson = async (encryptedText, password) => {
+const decryptBitwardenJsonJs = async (encryptedText, password) => {
   const json = JSON.parse(encryptedText)
 
   if (!json.encrypted || !json.passwordProtected) {
@@ -163,6 +162,63 @@ export const decryptBitwardenJson = async (encryptedText, password) => {
 
   const decryptedText = aesCbcDecrypt(json.data, encKey, macKey)
   return JSON.parse(decryptedText)
+}
+
+/**
+ * Decrypts a Bitwarden password-protected encrypted JSON export.
+ * Supports both PBKDF2 SHA-256 (kdfType 0) and Argon2id (kdfType 1).
+ *
+ * If `decryptViaWorklet` is provided, the heavy crypto runs there (e.g. inside
+ * a Bare worklet);
+ * otherwise the pure-JS implementation runs. The host-format parse
+ * (`encrypted`, `passwordProtected`, inner JSON.parse) always stays here so the
+ * worklet only deals with crypto primitives.
+ *
+ * @param {string} encryptedText - Raw contents of the encrypted .json file
+ * @param {string} password - The password used to protect the export
+ * @param {Object} [options]
+ * @param {(params: {
+ *   password: string,
+ *   salt: string,
+ *   kdfType: number,
+ *   kdfIterations: number,
+ *   kdfMemory?: number,
+ *   kdfParallelism?: number,
+ *   cipherString: string
+ * }) => Promise<string>} [options.decryptViaWorklet] - Native decryption hook
+ * @returns {Promise<object>} Decrypted vault JSON (pass to parseBitwardenJson)
+ * @throws {Error} If the file is not password-protected or the password is wrong
+ */
+export const decryptBitwardenJson = async (
+  encryptedText,
+  password,
+  { decryptViaWorklet } = {}
+) => {
+  if (!decryptViaWorklet) {
+    return decryptBitwardenJsonJs(encryptedText, password)
+  }
+
+  const json = JSON.parse(encryptedText)
+  if (!json.encrypted || !json.passwordProtected) {
+    throw new Error('File is not password-protected')
+  }
+
+  let plaintext
+  try {
+    plaintext = await decryptViaWorklet({
+      password,
+      salt: json.salt,
+      kdfType: json.kdfType ?? 0,
+      kdfIterations: json.kdfIterations,
+      kdfMemory: json.kdfMemory,
+      kdfParallelism: json.kdfParallelism,
+      cipherString: json.data
+    })
+  } catch (err) {
+    throw err
+  }
+
+  return JSON.parse(plaintext)
 }
 
 /**
