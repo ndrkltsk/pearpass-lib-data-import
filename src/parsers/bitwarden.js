@@ -1,8 +1,227 @@
+import { cbc } from '@noble/ciphers/aes'
+import { argon2id } from '@noble/hashes/argon2'
+import { expand } from '@noble/hashes/hkdf'
+import { hmac } from '@noble/hashes/hmac'
+import { sha256 } from '@noble/hashes/sha256'
+import '../utils/setupCrypto.js'
+
 import { addHttps } from '../utils/addHttps'
 import { getRowsFromCsv } from '../utils/getRowsFromCsv'
 
+// ---------------------------------------------------------------------------
+// Bitwarden encrypted-export decryption helpers
+// ---------------------------------------------------------------------------
+
+// Hoist Buffer check once at module load — on Hermes, typeof on a global resolves
+// through the scope chain; checking it on every fromBase64 call (3× per cipher
+// field × hundreds of items) is pure avoidable overhead.
+const hasBuffer = typeof Buffer !== 'undefined'
+
+// Cache encoder/decoder singletons. TextEncoder/TextDecoder instantiation crosses
+// the JSI boundary on Hermes. A single large vault import calls these hundreds of
+// times; reusing one instance per module eliminates that repeated GC + bridge overhead.
+const sharedEncoder = new TextEncoder()
+const sharedDecoder = new TextDecoder()
+
+// Pre-encode constant HKDF info labels once at module load to avoid re-allocating
+// the same Uint8Arrays on every decryption call.
+const hkdfEncLabel = sharedEncoder.encode('enc')
+const hkdfMacLabel = sharedEncoder.encode('mac')
+
+const fromBase64 = (b64) => {
+  if (hasBuffer) {
+    return new Uint8Array(Buffer.from(b64, 'base64'))
+  }
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+}
+
+const toUtf8 = (str) => sharedEncoder.encode(str)
+
+const timingSafeEqual = (a, b) => {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+  return diff === 0
+}
+
 /**
- * @param {{firstName?: string, middleName?: string, lastName?: string}} identity
+ * Splits a Bitwarden CipherString of the form "2.iv_b64|ct_b64|mac_b64".
+ * @param {string} cipherString
+ * @returns {{ iv: Uint8Array, ct: Uint8Array, mac: Uint8Array }}
+ */
+const parseCipherString = (cipherString) => {
+  const dot = cipherString.indexOf('.')
+  const type = parseInt(cipherString.slice(0, dot), 10)
+  if (type !== 2) throw new Error(`Unsupported CipherString type: ${type}`)
+  // Avoid creating an intermediate string (slice before split) and a 3-element
+  // string array (split result). Direct indexOf + slice works on the original
+  // string with zero intermediate allocations — important for large cipher strings.
+  const dotPlus = dot + 1
+  const pipe1 = cipherString.indexOf('|', dotPlus)
+  const pipe2 = cipherString.indexOf('|', pipe1 + 1)
+  if (pipe1 === -1 || pipe2 === -1)
+    throw new Error('Invalid CipherString format')
+  return {
+    iv: fromBase64(cipherString.slice(dotPlus, pipe1)),
+    ct: fromBase64(cipherString.slice(pipe1 + 1, pipe2)),
+    mac: fromBase64(cipherString.slice(pipe2 + 1))
+  }
+}
+
+/**
+ * Verifies the HMAC then decrypts an AES-256-CBC CipherString.
+ * @param {string} cipherString
+ * @param {Uint8Array} encKey
+ * @param {Uint8Array} macKey
+ * @returns {string} Decrypted UTF-8 string
+ */
+const aesCbcDecrypt = (cipherString, encKey, macKey) => {
+  const { iv, ct, mac } = parseCipherString(cipherString)
+
+  // Replace spread operator ([...iv, ...ct]) which copies every byte via a JS
+  // loop into a temporary Array before the Uint8Array is built — O(2n) work.
+  // Using .set() maps to native memcpy via JSI typed-array internals, saving
+  // the full ciphertext worth of GC allocation on every HMAC verification.
+  const ivAndCt = new Uint8Array(iv.length + ct.length)
+  ivAndCt.set(iv, 0)
+  ivAndCt.set(ct, iv.length)
+  const expectedMac = hmac(sha256, macKey, ivAndCt)
+  if (!timingSafeEqual(expectedMac, mac)) {
+    throw new Error('Incorrect password')
+  }
+
+  const plainBytes = cbc(encKey, iv).decrypt(ct)
+  // Decode first, then zero the byte buffer. This reduces peak memory on low-
+  // memory devices: plainBytes + the decoded string + the upcoming JSON.parse
+  // result would otherwise all live simultaneously. Zeroing also clears the
+  // sensitive decrypted content from memory as soon as it is no longer needed.
+  const text = sharedDecoder.decode(plainBytes)
+  plainBytes.fill(0)
+  return text
+}
+
+/**
+ * Pure-JS implementation. Slow. Like REALLY slow. intended
+ * for Node and web consumers and as a fallback.
+ *
+ * @param {string} encryptedText
+ * @param {string} password
+ * @returns {Promise<object>}
+ */
+const decryptBitwardenJsonJs = async (encryptedText, password) => {
+  const json = JSON.parse(encryptedText)
+
+  if (!json.encrypted || !json.passwordProtected) {
+    throw new Error('File is not password-protected')
+  }
+
+  // Bitwarden encodes the base64 salt string as UTF-8 bytes — it does NOT decode it.
+  // Intentionally short-lived locals: keeping salt and passwordBytes in a narrow
+  // scope lets the GC reclaim these byte arrays as soon as the KDF finishes.
+  const salt = toUtf8(json.salt)
+  const passwordBytes = toUtf8(password)
+  const kdfType = json.kdfType ?? 0
+
+  let masterKey
+  if (kdfType === 0) {
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      passwordBytes,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    )
+    const derivedBits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt, iterations: json.kdfIterations, hash: 'SHA-256' },
+      keyMaterial,
+      256
+    )
+    masterKey = new Uint8Array(derivedBits)
+  } else if (kdfType === 1) {
+    // Yield to the macrotask queue before running Argon2id. Unlike microtask
+    // yields (await Promise.resolve), a setTimeout(0) lets the React Native
+    // bridge flush pending UI frame commits, so the UI remains responsive and
+    // does not visibly freeze during the blocking KDF computation.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Argon2id: Bitwarden pre-hashes the salt with SHA-256
+    const saltHashed = sha256(salt)
+    masterKey = argon2id(passwordBytes, saltHashed, {
+      t: json.kdfIterations,
+      m: (json.kdfMemory ?? 64) * 1024,
+      p: json.kdfParallelism ?? 4,
+      dkLen: 32
+    })
+  } else {
+    throw new Error(`Unsupported KDF type: ${kdfType}`)
+  }
+
+  // Use pre-encoded label constants — these strings never change so there is no
+  // reason to re-encode and re-allocate them on every decryption call.
+  const encKey = expand(sha256, masterKey, hkdfEncLabel, 32)
+  const macKey = expand(sha256, masterKey, hkdfMacLabel, 32)
+
+  const decryptedText = aesCbcDecrypt(json.data, encKey, macKey)
+  return JSON.parse(decryptedText)
+}
+
+/**
+ * Decrypts a Bitwarden password-protected encrypted JSON export.
+ * Supports both PBKDF2 SHA-256 (kdfType 0) and Argon2id (kdfType 1).
+ *
+ * If `decryptViaWorklet` is provided, the heavy crypto runs there (e.g. inside
+ * a Bare worklet);
+ * otherwise the pure-JS implementation runs. The host-format parse
+ * (`encrypted`, `passwordProtected`, inner JSON.parse) always stays here so the
+ * worklet only deals with crypto primitives.
+ *
+ * @param {string} encryptedText - Raw contents of the encrypted .json file
+ * @param {string} password - The password used to protect the export
+ * @param {Object} [options]
+ * @param {(params: {
+ *   password: string,
+ *   salt: string,
+ *   kdfType: number,
+ *   kdfIterations: number,
+ *   kdfMemory?: number,
+ *   kdfParallelism?: number,
+ *   cipherString: string
+ * }) => Promise<string>} [options.decryptViaWorklet] - Native decryption hook
+ * @returns {Promise<object>} Decrypted vault JSON (pass to parseBitwardenJson)
+ * @throws {Error} If the file is not password-protected or the password is wrong
+ */
+export const decryptBitwardenJson = async (
+  encryptedText,
+  password,
+  { decryptViaWorklet } = {}
+) => {
+  if (!decryptViaWorklet) {
+    return decryptBitwardenJsonJs(encryptedText, password)
+  }
+
+  const json = JSON.parse(encryptedText)
+  if (!json.encrypted || !json.passwordProtected) {
+    throw new Error('File is not password-protected')
+  }
+
+  let plaintext
+  try {
+    plaintext = await decryptViaWorklet({
+      password,
+      salt: json.salt,
+      kdfType: json.kdfType ?? 0,
+      kdfIterations: json.kdfIterations,
+      kdfMemory: json.kdfMemory,
+      kdfParallelism: json.kdfParallelism,
+      cipherString: json.data
+    })
+  } catch (err) {
+    throw err
+  }
+
+  return JSON.parse(plaintext)
+}
+
+/**
  * @returns {string}
  */
 const getFullName = (identity) =>
@@ -271,7 +490,9 @@ export const parseBitwardenCSV = (csvText) => {
  */
 export const parseBitwardenData = (data, fileType) => {
   if (fileType === 'json') {
-    return parseBitwardenJson(JSON.parse(data))
+    return parseBitwardenJson(
+      typeof data === 'string' ? JSON.parse(data) : data
+    )
   }
 
   if (fileType === 'csv') {

@@ -1,7 +1,8 @@
 import {
   parseBitwardenJson,
   parseBitwardenCSV,
-  parseBitwardenData
+  parseBitwardenData,
+  decryptBitwardenJson
 } from './bitwarden'
 import { addHttps } from '../utils/addHttps'
 import { getRowsFromCsv } from '../utils/getRowsFromCsv'
@@ -336,6 +337,49 @@ describe('parseBitwardenData', () => {
   it('throws error for unsupported fileType', () => {
     expect(() => parseBitwardenData('data', 'xml')).toThrow(
       'Unsupported file type'
+    )
+  })
+})
+
+describe('decryptBitwardenJson', () => {
+  const fs = require('fs')
+  const path = require('path')
+
+  const readFixture = (name) =>
+    fs.readFileSync(path.join(__dirname, '__fixtures__', name), 'utf-8')
+
+  it('decrypts PBKDF2 SHA-256 protected export', async () => {
+    const raw = readFixture('PBKDF2-SHA-256.json')
+    const result = await decryptBitwardenJson(raw, '1234')
+    expect(result).toHaveProperty('items')
+    expect(Array.isArray(result.items)).toBe(true)
+  })
+
+  it('decrypts Argon2id protected export', async () => {
+    const raw = readFixture('argon2id.json')
+    const result = await decryptBitwardenJson(raw, '1234')
+    expect(result).toHaveProperty('items')
+    expect(Array.isArray(result.items)).toBe(true)
+  })
+
+  it('decrypted result is parseable by parseBitwardenJson', async () => {
+    const raw = readFixture('PBKDF2-SHA-256.json')
+    const json = await decryptBitwardenJson(raw, '1234')
+    const entries = parseBitwardenJson(json)
+    expect(Array.isArray(entries)).toBe(true)
+  })
+
+  it('throws Incorrect password on wrong password', async () => {
+    const raw = readFixture('PBKDF2-SHA-256.json')
+    await expect(decryptBitwardenJson(raw, 'wrong')).rejects.toThrow(
+      'Incorrect password'
+    )
+  })
+
+  it('throws when file is not password-protected', async () => {
+    const plainJson = JSON.stringify({ encrypted: false, items: [] })
+    await expect(decryptBitwardenJson(plainJson, '1234')).rejects.toThrow(
+      'File is not password-protected'
     )
   })
 })

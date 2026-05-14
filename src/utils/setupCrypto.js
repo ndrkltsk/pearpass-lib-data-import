@@ -27,6 +27,7 @@ if (!globalThis.crypto.subtle) {
   const { sha256 } = require('@noble/hashes/sha256')
   const { sha512 } = require('@noble/hashes/sha512')
   const { hmac } = require('@noble/hashes/hmac')
+  const { pbkdf2 } = require('@noble/hashes/pbkdf2')
   const { cbc } = require('@noble/ciphers/aes')
 
   const toUint8 = (data) => {
@@ -40,8 +41,19 @@ if (!globalThis.crypto.subtle) {
 
   const algName = (alg) => (typeof alg === 'string' ? alg : alg?.name || '')
 
-  const toBuffer = (uint8) =>
-    uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength)
+  // Zero-copy fast path: noble hash/cipher functions always return standalone
+  // Uint8Arrays (byteOffset === 0, own full buffer). Returning .buffer directly
+  // is O(1) vs .slice() which copies every byte. Both conditions are required —
+  // byteOffset === 0 alone is insufficient: if byteLength < buffer.byteLength,
+  // returning .buffer would expose trailing bytes from a pooled or sliced buffer.
+  const toBuffer = (uint8) => {
+    if (uint8.byteOffset === 0 && uint8.byteLength === uint8.buffer.byteLength)
+      return uint8.buffer
+    return uint8.buffer.slice(
+      uint8.byteOffset,
+      uint8.byteOffset + uint8.byteLength
+    )
+  }
 
   class PolyfillCryptoKey {
     constructor(raw, algorithm) {
@@ -91,6 +103,21 @@ if (!globalThis.crypto.subtle) {
       return toBuffer(
         cbc(key.rawKey, toUint8(algorithm.iv)).decrypt(toUint8(data))
       )
+    },
+
+    async deriveBits(algorithm, key, length) {
+      if (algName(algorithm) !== 'PBKDF2') {
+        throw new Error('Only PBKDF2 is supported for deriveBits')
+      }
+      const hashAlg = algName(algorithm.hash)
+      const hashFn =
+        hashAlg === 'SHA-256' ? sha256 : hashAlg === 'SHA-512' ? sha512 : null
+      if (!hashFn) throw new Error(`Unsupported PBKDF2 hash: ${hashAlg}`)
+      const result = pbkdf2(hashFn, key.rawKey, toUint8(algorithm.salt), {
+        c: algorithm.iterations,
+        dkLen: length / 8
+      })
+      return toBuffer(result)
     }
   }
 }
