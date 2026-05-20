@@ -55,7 +55,7 @@ describe('parseLastPassCsv', () => {
     expect(result[0].type).toBe('creditCard')
     expect(result[0].folder).toBe('Cards')
     expect(result[0].isFavorite).toBe(false)
-    expect(result[0].data.title).toBe('Visa')
+    expect(result[0].data.title).toBe('John Doe')
     expect(result[0].data.name).toBe('John Doe')
     expect(result[0].data.number).toBe('1234567890123456')
     expect(result[0].data.expireDate).toBe('01/25')

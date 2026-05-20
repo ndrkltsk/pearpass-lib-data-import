@@ -16,14 +16,24 @@ import { STATUS } from '../../constants.js'
  */
 function resolveBatch(items, batchSize, batchId) {
   if (items.size < batchSize) {
-    return { status: STATUS.incompleteBatch, expected: batchSize, received: items.size, batchId }
+    return {
+      status: STATUS.incompleteBatch,
+      expected: batchSize,
+      received: items.size,
+      batchId
+    }
   }
 
   const allParams = []
   for (let i = 0; i < batchSize; i++) {
     const payload = items.get(i)
     if (!payload) {
-      return { status: STATUS.incompleteBatch, expected: batchSize, received: items.size, batchId }
+      return {
+        status: STATUS.incompleteBatch,
+        expected: batchSize,
+        received: items.size,
+        batchId
+      }
     }
     allParams.push(...payload.otpParameters)
   }

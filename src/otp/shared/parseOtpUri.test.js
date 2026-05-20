@@ -3,7 +3,9 @@ import { parseOtpUri } from './parseOtpUri'
 describe('parseOtpUri', () => {
   describe('valid TOTP URI', () => {
     it('parses minimal TOTP URI with defaults', () => {
-      const record = parseOtpUri('otpauth://totp/alice%40example.com?secret=JBSWY3DP')
+      const record = parseOtpUri(
+        'otpauth://totp/alice%40example.com?secret=JBSWY3DP'
+      )
       expect(record).toEqual({
         type: 'TOTP',
         label: 'alice@example.com',
@@ -30,7 +32,9 @@ describe('parseOtpUri', () => {
     })
 
     it('parses issuer from label prefix when issuer param is absent', () => {
-      const record = parseOtpUri('otpauth://totp/GitHub%3Aalice?secret=JBSWY3DP')
+      const record = parseOtpUri(
+        'otpauth://totp/GitHub%3Aalice?secret=JBSWY3DP'
+      )
       expect(record.issuer).toBe('GitHub')
       expect(record.label).toBe('alice')
     })
@@ -52,7 +56,9 @@ describe('parseOtpUri', () => {
 
   describe('valid HOTP URI', () => {
     it('parses HOTP URI with counter', () => {
-      const record = parseOtpUri('otpauth://hotp/alice?secret=JBSWY3DP&counter=5')
+      const record = parseOtpUri(
+        'otpauth://hotp/alice?secret=JBSWY3DP&counter=5'
+      )
       expect(record).toMatchObject({
         type: 'HOTP',
         label: 'alice',

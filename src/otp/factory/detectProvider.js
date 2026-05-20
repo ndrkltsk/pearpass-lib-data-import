@@ -12,7 +12,8 @@ import { OTP_PROVIDERS } from '../constants.js'
  */
 export function detectProvider(input) {
   if (typeof input !== 'string') return OTP_PROVIDERS.unknown
-  if (input.startsWith('otpauth-migration://')) return OTP_PROVIDERS.googleMigration
+  if (input.startsWith('otpauth-migration://'))
+    return OTP_PROVIDERS.googleMigration
   if (input.startsWith('otpauth://')) return OTP_PROVIDERS.otpUri
   return OTP_PROVIDERS.unknown
 }

@@ -34,7 +34,15 @@ function encodeVarintField(fieldNum, val) {
 /**
  * @param {{ secret: number[], name?: string, issuer?: string, algorithm?: number, digits?: number, type?: number, counter?: number }} params
  */
-function encodeOtpParameters({ secret, name = '', issuer = '', algorithm = 1, digits = 1, type = 2, counter = 0 }) {
+function encodeOtpParameters({
+  secret,
+  name = '',
+  issuer = '',
+  algorithm = 1,
+  digits = 1,
+  type = 2,
+  counter = 0
+}) {
   return [
     ...encodeBytes(1, secret),
     ...encodeString(2, name),
@@ -50,7 +58,13 @@ function encodeOtpParameters({ secret, name = '', issuer = '', algorithm = 1, di
  * @param {{ otpParams: Object[], version?: number, batchSize?: number, batchIndex?: number, batchId?: number }} opts
  * @returns {Buffer}
  */
-export function encodeMigrationPayload({ otpParams = [], version = 1, batchSize = 1, batchIndex = 0, batchId = 1 }) {
+export function encodeMigrationPayload({
+  otpParams = [],
+  version = 1,
+  batchSize = 1,
+  batchIndex = 0,
+  batchId = 1
+}) {
   const bytes = []
   for (const p of otpParams) {
     const paramBytes = encodeOtpParameters(p)
