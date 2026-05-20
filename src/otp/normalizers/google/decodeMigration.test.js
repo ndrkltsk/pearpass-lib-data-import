@@ -11,7 +11,14 @@ describe('decodeMigrationUri', () => {
   describe('valid URIs', () => {
     it('decodes a single TOTP entry', () => {
       const uri = makeUri({
-        otpParams: [{ secret: HELLO_BYTES, name: 'alice@example.com', issuer: 'Example', type: 2 }]
+        otpParams: [
+          {
+            secret: HELLO_BYTES,
+            name: 'alice@example.com',
+            issuer: 'Example',
+            type: 2
+          }
+        ]
       })
       const result = decodeMigrationUri(uri)
 
@@ -27,7 +34,12 @@ describe('decodeMigrationUri', () => {
       const uri = makeUri({
         otpParams: [
           { secret: HELLO_BYTES, name: 'alice', issuer: 'ServiceA', type: 2 },
-          { secret: [0x01, 0x02, 0x03], name: 'bob', issuer: 'ServiceB', type: 2 }
+          {
+            secret: [0x01, 0x02, 0x03],
+            name: 'bob',
+            issuer: 'ServiceB',
+            type: 2
+          }
         ]
       })
       const result = decodeMigrationUri(uri)
@@ -38,7 +50,9 @@ describe('decodeMigrationUri', () => {
 
     it('decodes HOTP entry with counter', () => {
       const uri = makeUri({
-        otpParams: [{ secret: HELLO_BYTES, name: 'hotp-user', type: 1, counter: 42 }]
+        otpParams: [
+          { secret: HELLO_BYTES, name: 'hotp-user', type: 1, counter: 42 }
+        ]
       })
       const result = decodeMigrationUri(uri)
       const params = result.otpParameters[0]
@@ -64,9 +78,9 @@ describe('decodeMigrationUri', () => {
 
   describe('errors', () => {
     it('throws on wrong protocol', () => {
-      expect(() => decodeMigrationUri('otpauth://totp/test?secret=ABC')).toThrow(
-        'must start with otpauth-migration://'
-      )
+      expect(() =>
+        decodeMigrationUri('otpauth://totp/test?secret=ABC')
+      ).toThrow('must start with otpauth-migration://')
     })
 
     it('throws on non-string input', () => {
@@ -82,7 +96,9 @@ describe('decodeMigrationUri', () => {
     })
 
     it('throws on empty data parameter', () => {
-      expect(() => decodeMigrationUri('otpauth-migration://offline?data=')).toThrow()
+      expect(() =>
+        decodeMigrationUri('otpauth-migration://offline?data=')
+      ).toThrow()
     })
   })
 })

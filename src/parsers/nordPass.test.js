@@ -193,7 +193,7 @@ describe('parseNordPassCSV', () => {
     ])
     const result = parseNordPassCSV('csv')
     expect(result[0].data.customFields).toEqual([
-      { type: 'note', note: 'foo:bar' }
+      { type: 'note', note: 'foo: bar' }
     ])
   })
 

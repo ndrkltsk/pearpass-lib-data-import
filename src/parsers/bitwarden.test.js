@@ -103,7 +103,7 @@ describe('parseBitwardenJson', () => {
         title: 'My Card',
         name: 'John Doe',
         number: '1234',
-        expireDate: '12/2025',
+        expireDate: '12 25',
         securityCode: '999',
         pinCode: '',
         note: 'Card note',

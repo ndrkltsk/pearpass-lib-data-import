@@ -22,7 +22,13 @@ describe('decodeMigrationPayload', () => {
 
     it('defaults version=0 and batchId=0 when not encoded', () => {
       // Encode only the otp entry field (field 1) with no metadata fields
-      const paramBuf = encodeMigrationPayload({ otpParams: [{ secret: SECRET }], version: 0, batchSize: 1, batchIndex: 0, batchId: 0 })
+      const paramBuf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET }],
+        version: 0,
+        batchSize: 1,
+        batchIndex: 0,
+        batchId: 0
+      })
       const result = decodeMigrationPayload(paramBuf)
       expect(result.version).toBe(0)
       expect(result.batchId).toBe(0)
@@ -58,7 +64,9 @@ describe('decodeMigrationPayload', () => {
 
     it('decodes name and issuer strings', () => {
       const buf = encodeMigrationPayload({
-        otpParams: [{ secret: SECRET, name: 'alice@example.com', issuer: 'GitHub' }]
+        otpParams: [
+          { secret: SECRET, name: 'alice@example.com', issuer: 'GitHub' }
+        ]
       })
       const { name, issuer } = decodeMigrationPayload(buf).otpParameters[0]
       expect(name).toBe('alice@example.com')
@@ -66,38 +74,50 @@ describe('decodeMigrationPayload', () => {
     })
 
     it('decodes algorithm field', () => {
-      const buf = encodeMigrationPayload({ otpParams: [{ secret: SECRET, algorithm: 3 }] }) // SHA512
+      const buf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET, algorithm: 3 }]
+      }) // SHA512
       const { algorithm } = decodeMigrationPayload(buf).otpParameters[0]
       expect(algorithm).toBe(3)
     })
 
     it('decodes digits field', () => {
-      const buf = encodeMigrationPayload({ otpParams: [{ secret: SECRET, digits: 2 }] }) // EIGHT
+      const buf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET, digits: 2 }]
+      }) // EIGHT
       const { digits } = decodeMigrationPayload(buf).otpParameters[0]
       expect(digits).toBe(2)
     })
 
     it('decodes type field', () => {
-      const buf = encodeMigrationPayload({ otpParams: [{ secret: SECRET, type: 2 }] }) // TOTP
+      const buf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET, type: 2 }]
+      }) // TOTP
       const { type } = decodeMigrationPayload(buf).otpParameters[0]
       expect(type).toBe(2)
     })
 
     it('decodes counter for HOTP entries', () => {
-      const buf = encodeMigrationPayload({ otpParams: [{ secret: SECRET, type: 1, counter: 7 }] })
+      const buf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET, type: 1, counter: 7 }]
+      })
       const { counter, type } = decodeMigrationPayload(buf).otpParameters[0]
       expect(type).toBe(1)
       expect(counter).toBe(7)
     })
 
     it('defaults counter to 0 when not encoded', () => {
-      const buf = encodeMigrationPayload({ otpParams: [{ secret: SECRET, type: 2 }] })
+      const buf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET, type: 2 }]
+      })
       const { counter } = decodeMigrationPayload(buf).otpParameters[0]
       expect(counter).toBe(0)
     })
 
     it('decodes empty name and missing issuer gracefully', () => {
-      const buf = encodeMigrationPayload({ otpParams: [{ secret: SECRET, name: '' }] })
+      const buf = encodeMigrationPayload({
+        otpParams: [{ secret: SECRET, name: '' }]
+      })
       const { name, issuer } = decodeMigrationPayload(buf).otpParameters[0]
       expect(name).toBe('')
       expect(issuer).toBe('')

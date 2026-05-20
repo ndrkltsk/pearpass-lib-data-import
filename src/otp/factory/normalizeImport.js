@@ -1,9 +1,9 @@
 import { detectProvider } from './detectProvider.js'
-import { parseOtpUri } from '../shared/parseOtpUri.js'
-import { decodeMigrationUri } from '../normalizers/google/decodeMigration.js'
-import { aggregateBatches } from '../normalizers/google/batch.js'
-import { normalizeGooglePayload } from '../normalizers/google/normalize.js'
 import { OTP_PROVIDERS, STATUS } from '../constants.js'
+import { aggregateBatches } from '../normalizers/google/batch.js'
+import { decodeMigrationUri } from '../normalizers/google/decodeMigration.js'
+import { normalizeGooglePayload } from '../normalizers/google/normalize.js'
+import { parseOtpUri } from '../shared/parseOtpUri.js'
 
 /**
  * @typedef {import('../interfaces/OTPRecord.js').OTPRecord} OTPRecord
@@ -40,7 +40,9 @@ export function normalizeImport(input) {
       return batchResult
     }
 
-    const records = normalizeGooglePayload({ otpParameters: batchResult.otpParameters })
+    const records = normalizeGooglePayload({
+      otpParameters: batchResult.otpParameters
+    })
     return { status: STATUS.complete, records }
   }
 

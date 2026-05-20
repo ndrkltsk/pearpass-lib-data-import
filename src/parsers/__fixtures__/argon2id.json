@@ -1,0 +1,10 @@
+{
+  "encrypted": true,
+  "passwordProtected": true,
+  "salt": "fixture-salt-argon2",
+  "kdfType": 1,
+  "kdfIterations": 1,
+  "kdfMemory": 1,
+  "kdfParallelism": 1,
+  "data": "2.TCIkm2+DA3shUxvuUrAZ1A==|Bfr2lLNtrNwQaYBd1Imy4g==|tOxBy0tFPdbl03XYUnAdOwVWB5QI1BzGfi1+f2Zh+iU="
+}

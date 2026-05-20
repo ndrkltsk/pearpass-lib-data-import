@@ -1,0 +1,8 @@
+{
+  "encrypted": true,
+  "passwordProtected": true,
+  "salt": "fixture-salt-pbkdf2",
+  "kdfType": 0,
+  "kdfIterations": 1,
+  "data": "2.KAriO1ZxpEtOfVu9QndX5Q==|SIk9YwRxKx/3PmhHK+KMPw==|ENm7osiUxjgjshgT+2hLVuwryZHlXmQxusxY1KsnMCg="
+}

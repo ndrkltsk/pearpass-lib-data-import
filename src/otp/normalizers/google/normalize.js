@@ -1,5 +1,5 @@
-import { encodeBase32 } from '../../shared/base32.js'
 import { OTP_TYPE, OTP_ALGORITHM } from '../../constants.js'
+import { encodeBase32 } from '../../shared/base32.js'
 
 /** @typedef {import('../../interfaces/OTPRecord.js').OTPRecord} OTPRecord */
 
