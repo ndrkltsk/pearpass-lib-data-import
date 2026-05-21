@@ -8,6 +8,7 @@ export { normalizeImport } from './src/otp/factory/normalizeImport'
 export { detectProvider } from './src/otp/factory/detectProvider'
 export { parseOtpUri } from './src/otp/shared/parseOtpUri'
 export { decodeMigrationUri } from './src/otp/normalizers/google/decodeMigration'
+export { normalizeProtonAuthenticator } from './src/otp/normalizers/proton/normalize'
 export { parse1PasswordData } from './src/parsers/1password'
 export {
   decryptBitwardenJson,
