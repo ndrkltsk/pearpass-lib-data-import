@@ -8,20 +8,99 @@ const kdbxweb = _kdbxweb.default || _kdbxweb
 import { addHttps } from '../utils/addHttps'
 import { getRowsFromCsv } from '../utils/getRowsFromCsv'
 
-kdbxweb.CryptoEngine.setArgon2Impl(
-  (password, salt, memory, iterations, length, parallelism, type) => {
-    const hashFn =
-      type === kdbxweb.CryptoEngine.Argon2TypeArgon2id ? argon2id : argon2d
-    return Promise.resolve(
-      hashFn(new Uint8Array(password), new Uint8Array(salt), {
-        t: iterations,
-        m: memory,
-        p: parallelism,
-        dkLen: length
-      })
-    )
+// ---------------------------------------------------------------------------
+// KDBX 4 Argon2 key derivation
+//
+// kdbxweb derives the master key through a single global `setArgon2Impl` hook.
+// Argon2 is deliberately memory-hard; the pure-JS implementation below runs on
+// the caller's thread, which on React Native's Hermes engine (no JIT) can
+// freeze the UI for minutes on a KDBX 4 database. `decryptKeePassKdbx` accepts
+// an optional `argon2ViaWorklet` hook so the host can offload the derivation
+// to a Bare worklet (JIT-enabled V8) instead — see pearpass-lib-vault-core.
+// ---------------------------------------------------------------------------
+
+const hasBuffer = typeof Buffer !== 'undefined'
+
+const toBase64 = (bytes) => {
+  if (hasBuffer) return Buffer.from(bytes).toString('base64')
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
   }
-)
+  return btoa(binary)
+}
+
+const fromBase64 = (b64) => {
+  if (hasBuffer) return new Uint8Array(Buffer.from(b64, 'base64'))
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+}
+
+const argon2TypeName = (type) =>
+  type === kdbxweb.CryptoEngine.Argon2TypeArgon2id ? 'argon2id' : 'argon2d'
+
+/**
+ * Pure-JS Argon2 implementation for `kdbxweb.CryptoEngine.setArgon2Impl`.
+ * Runs on the caller's thread — slow on Hermes; the fallback used when no
+ * worklet hook is supplied.
+ */
+const nobleArgon2Impl = (
+  password,
+  salt,
+  memory,
+  iterations,
+  length,
+  parallelism,
+  type,
+  version
+) => {
+  const hashFn =
+    type === kdbxweb.CryptoEngine.Argon2TypeArgon2id ? argon2id : argon2d
+  return Promise.resolve(
+    hashFn(new Uint8Array(password), new Uint8Array(salt), {
+      t: iterations,
+      m: memory,
+      p: parallelism,
+      dkLen: length,
+      version
+    })
+  )
+}
+
+/**
+ * Builds an Argon2 implementation that delegates the memory-hard derivation to
+ * a worklet, keeping the JS thread responsive. kdbxweb passes `memory` already
+ * in KiB and `length` fixed at 32.
+ *
+ * @param {(params: {
+ *   password: string, salt: string, type: 'argon2d'|'argon2id',
+ *   memory: number, iterations: number, parallelism: number,
+ *   length: number, version: number
+ * }) => Promise<string>} argon2ViaWorklet - resolves to a base64 derived key
+ */
+const createWorkletArgon2Impl =
+  (argon2ViaWorklet) =>
+  async (
+    password,
+    salt,
+    memory,
+    iterations,
+    length,
+    parallelism,
+    type,
+    version
+  ) => {
+    const derivedB64 = await argon2ViaWorklet({
+      password: toBase64(new Uint8Array(password)),
+      salt: toBase64(new Uint8Array(salt)),
+      type: argon2TypeName(type),
+      memory,
+      iterations,
+      parallelism,
+      length,
+      version
+    })
+    return fromBase64(derivedB64)
+  }
 
 const STANDARD_FIELDS = new Set([
   'Title',
@@ -110,9 +189,29 @@ const walkGroup = (group, parentPath = '') => {
  * Parses a KDBX (KeePass 2.x) encrypted database file.
  * @param {ArrayBuffer} arrayBuffer - Raw KDBX file contents.
  * @param {string} password - Master password for decryption.
+ * @param {Object} [options]
+ * @param {(params: {
+ *   password: string, salt: string, type: 'argon2d'|'argon2id',
+ *   memory: number, iterations: number, parallelism: number,
+ *   length: number, version: number
+ * }) => Promise<string>} [options.argon2ViaWorklet] - Offloads the Argon2 KDF
+ *   to a worklet (resolves to a base64 derived key). When omitted, a pure-JS
+ *   Argon2 runs on the caller's thread.
  * @returns {Promise<object>}
  */
-export const decryptKeePassKdbx = async (arrayBuffer, password) => {
+export const decryptKeePassKdbx = async (
+  arrayBuffer,
+  password,
+  { argon2ViaWorklet } = {}
+) => {
+  // kdbxweb's Argon2 impl is global module state; register it per call so the
+  // choice of worklet vs pure-JS is deterministic for each import.
+  kdbxweb.CryptoEngine.setArgon2Impl(
+    argon2ViaWorklet
+      ? createWorkletArgon2Impl(argon2ViaWorklet)
+      : nobleArgon2Impl
+  )
+
   let db
   try {
     const credentials = new kdbxweb.Credentials(

@@ -33,7 +33,9 @@ jest.mock('kdbxweb', () => {
       load: jest.fn()
     },
     CryptoEngine: {
-      setArgon2Impl: jest.fn()
+      setArgon2Impl: jest.fn(),
+      Argon2TypeArgon2d: 0,
+      Argon2TypeArgon2id: 2
     },
     Consts: {
       KdfId: { Argon2id: 'argon2id' },
@@ -41,11 +43,6 @@ jest.mock('kdbxweb', () => {
     }
   }
 })
-
-jest.mock('hash-wasm', () => ({
-  argon2id: jest.fn(),
-  argon2d: jest.fn()
-}))
 
 const kdbxweb = require('kdbxweb')
 
@@ -491,6 +488,87 @@ describe('decryptKeePassKdbx', () => {
     await expect(
       decryptKeePassKdbx(new ArrayBuffer(10), 'pass')
     ).rejects.toThrow('Failed to open database: Random error')
+  })
+
+  it('registers a pure-JS Argon2 impl when no worklet hook is given', async () => {
+    kdbxweb.Kdbx.load.mockResolvedValue({
+      groups: [{ name: 'Root', entries: [], groups: [] }]
+    })
+
+    await decryptKeePassKdbx(new ArrayBuffer(10), 'password')
+
+    expect(kdbxweb.CryptoEngine.setArgon2Impl).toHaveBeenCalledTimes(1)
+    expect(typeof kdbxweb.CryptoEngine.setArgon2Impl.mock.calls[0][0]).toBe(
+      'function'
+    )
+  })
+
+  it('offloads Argon2 to the worklet hook when one is provided', async () => {
+    kdbxweb.Kdbx.load.mockResolvedValue({
+      groups: [{ name: 'Root', entries: [], groups: [] }]
+    })
+    const derived = new Uint8Array([1, 2, 3, 4])
+    const argon2ViaWorklet = jest
+      .fn()
+      .mockResolvedValue(Buffer.from(derived).toString('base64'))
+
+    await decryptKeePassKdbx(new ArrayBuffer(10), 'password', {
+      argon2ViaWorklet
+    })
+
+    // kdbxweb derives the key by calling the registered impl — invoke it the
+    // same way kdbxweb would (memory in KiB, length fixed at 32).
+    const impl = kdbxweb.CryptoEngine.setArgon2Impl.mock.calls[0][0]
+    const result = await impl(
+      new Uint8Array([9, 9, 9]).buffer,
+      new Uint8Array([7, 7]).buffer,
+      65536,
+      3,
+      32,
+      4,
+      kdbxweb.CryptoEngine.Argon2TypeArgon2id,
+      0x13
+    )
+
+    expect(argon2ViaWorklet).toHaveBeenCalledWith({
+      password: Buffer.from([9, 9, 9]).toString('base64'),
+      salt: Buffer.from([7, 7]).toString('base64'),
+      type: 'argon2id',
+      memory: 65536,
+      iterations: 3,
+      parallelism: 4,
+      length: 32,
+      version: 0x13
+    })
+    expect(Array.from(result)).toEqual([1, 2, 3, 4])
+  })
+
+  it('maps the Argon2d KDF type for the worklet hook', async () => {
+    kdbxweb.Kdbx.load.mockResolvedValue({
+      groups: [{ name: 'Root', entries: [], groups: [] }]
+    })
+    const argon2ViaWorklet = jest
+      .fn()
+      .mockResolvedValue(Buffer.from([0]).toString('base64'))
+
+    await decryptKeePassKdbx(new ArrayBuffer(10), 'password', {
+      argon2ViaWorklet
+    })
+    const impl = kdbxweb.CryptoEngine.setArgon2Impl.mock.calls[0][0]
+    await impl(
+      new Uint8Array([1]).buffer,
+      new Uint8Array([2]).buffer,
+      1024,
+      1,
+      32,
+      1,
+      kdbxweb.CryptoEngine.Argon2TypeArgon2d,
+      0x13
+    )
+
+    expect(argon2ViaWorklet).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'argon2d' })
+    )
   })
 })
 
